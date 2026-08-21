@@ -2,83 +2,229 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Fase da Lua</title>
+<title>Meu Ciclo</title>
 <style>
   :root{
     --line:#ffffff;
     --text:#ffffff;
-    --muted:rgba(255,255,255,0.6);
+    --muted:rgba(255,255,255,0.55);
+    --bg:#191919;
   }
   html,body{
     margin:0;
     padding:0;
-    background:#191919;
+    background:var(--bg);
     height:100%;
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-family:'Courier New', Courier, monospace;
   }
-  .moon-widget{
+  .widget{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:28px;
+    padding:24px 16px;
+    min-height:100%;
+    background:var(--bg);
+    color:var(--text);
+    box-sizing:border-box;
+  }
+
+  /* ---------- Relógio ---------- */
+  .clock-block{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+  .clock-wrap{
+    position:relative;
+    width:220px;
+    height:220px;
+  }
+  .clock-wrap svg{
+    width:100%;
+    height:100%;
+    display:block;
+    overflow:visible;
+  }
+  .clock-text{
+    position:absolute;
+    top:62%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    text-align:center;
+    pointer-events:none;
+  }
+  .clock-time{
+    font-size:17px;
+    font-weight:700;
+    letter-spacing:1px;
+    line-height:1;
+  }
+  .clock-date{
+    margin-top:5px;
+    font-size:9px;
+    letter-spacing:0.5px;
+    color:var(--muted);
+    text-transform:uppercase;
+    max-width:110px;
+  }
+
+  /* ---------- Lua ---------- */
+  .moon-row{
     display:flex;
     flex-direction:row;
     align-items:center;
-    justify-content:center;
-    gap:12px;
-    padding:12px;
-    min-height:100%;
-    background:#191919;
-    color:var(--text);
-    text-align:left;
-    box-sizing:border-box;
-  }
-  canvas{
-    display:block;
-    flex-shrink:0;
+    gap:14px;
   }
   .moon-text{
     display:flex;
     flex-direction:column;
     gap:2px;
+    text-align:left;
+  }
+  .moon-date{
+    font-size:13px;
+    font-weight:600;
+    letter-spacing:0.3px;
+    color:var(--text);
+    margin-bottom:4px;
   }
   .phase-name{
-    font-size:14px;
-    font-weight:500;
-    letter-spacing:0.2px;
+    font-size:15px;
+    font-weight:700;
+    letter-spacing:0.5px;
   }
   .phase-sub{
     font-size:11px;
     color:var(--muted);
+    letter-spacing:0.5px;
   }
 </style>
 </head>
 <body>
 
-<div class="moon-widget">
-  <canvas id="moonCanvas" width="64" height="64"></canvas>
-  <div class="moon-text">
-    <div class="phase-name" id="phaseName">Carregando...</div>
-    <div class="phase-sub" id="phaseSub"></div>
+<div class="widget">
+
+  <!-- Relógio analógico -->
+  <div class="clock-block">
+    <div class="clock-wrap">
+      <svg viewBox="0 0 220 220">
+        <!-- anéis progressivos (arco desenhado até a posição do ponteiro correspondente) -->
+        <circle id="ringHour"   cx="110" cy="110" r="60" fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round" transform="rotate(-90 110 110)"/>
+        <circle id="ringMinute" cx="110" cy="110" r="80" fill="none" stroke="#ffffff" stroke-width="2"   stroke-linecap="round" transform="rotate(-90 110 110)"/>
+        <circle id="ringSecond" cx="110" cy="110" r="100" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" transform="rotate(-90 110 110)"/>
+
+        <!-- ponteiros: passam um pouco do centro no sentido contrário, como relógios analógicos reais -->
+        <line id="hourHand"   x1="110" y1="118" x2="110" y2="50" stroke="#ffffff" stroke-width="1.6" stroke-linecap="round"/>
+        <line id="minuteHand" x1="110" y1="122" x2="110" y2="30" stroke="#ffffff" stroke-width="2"   stroke-linecap="round"/>
+        <line id="secondHand" x1="110" y1="126" x2="110" y2="10" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round"/>
+
+        <!-- ponto central -->
+        <circle cx="110" cy="110" r="3" fill="#ffffff"/>
+      </svg>
+
+      <div class="clock-text">
+        <div class="clock-time" id="digitalTime">00:00</div>
+        <div class="clock-date" id="digitalDate">Seg</div>
+      </div>
+    </div>
   </div>
+
+  <!-- Fase da lua -->
+  <div class="moon-row">
+    <canvas id="moonCanvas" width="64" height="64"></canvas>
+    <div class="moon-text">
+      <div class="moon-date" id="moonDate">--/--/----</div>
+      <div class="phase-name" id="phaseName">Carregando...</div>
+      <div class="phase-sub" id="phaseSub"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
 (function(){
-  // ---- Cálculo da fase lunar (sem dependências externas) ----
-  // Referência: Lua Nova conhecida em 6 de Janeiro de 2000, 18:14 UTC
-  var LUNAR_CYCLE = 29.530588853; // dias, mês sinódico médio
-  var KNOWN_NEW_MOON = Date.UTC(2000, 0, 6, 18, 14, 0); // ms UTC
+
+  /* =========================================================
+     RELÓGIO ANALÓGICO — animação contínua e suave
+     ========================================================= */
+  var hourHand   = document.getElementById("hourHand");
+  var minuteHand = document.getElementById("minuteHand");
+  var secondHand = document.getElementById("secondHand");
+  var ringHour   = document.getElementById("ringHour");
+  var ringMinute = document.getElementById("ringMinute");
+  var ringSecond = document.getElementById("ringSecond");
+  var digitalTime = document.getElementById("digitalTime");
+  var digitalDate = document.getElementById("digitalDate");
+
+  var CX = 110, CY = 110;
+  var R_HOUR = 60, R_MINUTE = 80, R_SECOND = 100;
+  var CIRC_HOUR = 2 * Math.PI * R_HOUR;
+  var CIRC_MINUTE = 2 * Math.PI * R_MINUTE;
+  var CIRC_SECOND = 2 * Math.PI * R_SECOND;
+
+  var diasSemana = ["Domingo","Segunda-feira","Terça-feira","Quarta-feira","Quinta-feira","Sexta-feira","Sábado"];
+  var meses = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+
+  function setHandAngle(el, angleDeg) {
+    el.setAttribute("transform", "rotate(" + angleDeg + " " + CX + " " + CY + ")");
+  }
+
+  // Desenha o anel apenas do topo (12h) até a fração correspondente, no sentido horário
+  function setRingProgress(el, circumference, fraction) {
+    var arcLen = circumference * fraction;
+    el.setAttribute("stroke-dasharray", arcLen + " " + (circumference - arcLen));
+  }
+
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+
+  function updateClock() {
+    var now = new Date();
+
+    var h = now.getHours();
+    var m = now.getMinutes();
+    var s = now.getSeconds();
+    var ms = now.getMilliseconds();
+
+    var secFraction = (s + ms / 1000) / 60;
+    var minFraction = (m + secFraction) / 60;
+    var hourFraction = ((h % 12) + minFraction) / 12;
+
+    setHandAngle(secondHand, secFraction * 360);
+    setHandAngle(minuteHand, minFraction * 360);
+    setHandAngle(hourHand, hourFraction * 360);
+
+    setRingProgress(ringSecond, CIRC_SECOND, secFraction);
+    setRingProgress(ringMinute, CIRC_MINUTE, minFraction);
+    setRingProgress(ringHour, CIRC_HOUR, hourFraction);
+
+    digitalTime.textContent = pad(h) + ":" + pad(m);
+    digitalDate.textContent = diasSemana[now.getDay()];
+
+    requestAnimationFrame(updateClock);
+  }
+
+  requestAnimationFrame(updateClock);
+
+  /* =========================================================
+     FASE DA LUA — mesmo cálculo usado no widget anterior
+     ========================================================= */
+  var LUNAR_CYCLE = 29.530588853;
+  var KNOWN_NEW_MOON = Date.UTC(2000, 0, 6, 18, 14, 0);
 
   function getMoonAge(date) {
     var diffMs = date.getTime() - KNOWN_NEW_MOON;
     var diffDays = diffMs / (1000 * 60 * 60 * 24);
     var age = diffDays % LUNAR_CYCLE;
     if (age < 0) age += LUNAR_CYCLE;
-    return age; // 0 a ~29.53
+    return age;
   }
 
-  // Retorna { name, illumination(0-1), wax:boolean }
   function getPhaseInfo(age) {
     var cycle = LUNAR_CYCLE;
-    var t = age / cycle; // 0 a 1
-    var illumination = (1 - Math.cos(2 * Math.PI * t)) / 2; // 0 a 1
+    var t = age / cycle;
+    var illumination = (1 - Math.cos(2 * Math.PI * t)) / 2;
     var waxing = t < 0.5;
 
     var name;
@@ -97,23 +243,20 @@
   function drawMoon(canvas, illumination, waxing) {
     var ctx = canvas.getContext("2d");
     var w = canvas.width, h = canvas.height;
-    var r = Math.min(w, h) / 2 - 6;
+    var r = Math.min(w, h) / 2 - 3;
     var cx = w / 2, cy = h / 2;
 
     ctx.clearRect(0, 0, w, h);
 
-    // Parte iluminada, desenhada via clipping + elipse terminadora (só preenchimento branco, sem disco escuro)
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.clip();
 
-    var k = 1 - 2 * illumination; // -1 (cheia) a 1 (nova), controla largura da elipse do terminador
+    var k = 1 - 2 * illumination;
     var halfW = Math.abs(k) * r;
 
     ctx.fillStyle = "#ffffff";
-
-    // Metade sempre iluminada (direita se crescente, esquerda se minguante)
     ctx.beginPath();
     if (waxing) {
       ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
@@ -123,9 +266,6 @@
     ctx.closePath();
     ctx.fill();
 
-    // Elipse do terminador: em fase minguante/crescente, recorta ou soma luz
-    // Usa "destination-out" para apagar (deixar transparente) quando precisa remover luz,
-    // e desenha em branco quando precisa completar o disco perto da lua cheia.
     ctx.beginPath();
     ctx.ellipse(cx, cy, halfW, r, 0, 0, Math.PI * 2);
     if (illumination < 0.5) {
@@ -140,7 +280,6 @@
 
     ctx.restore();
 
-    // Contorno do disco inteiro, sempre visível (outline)
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.strokeStyle = "#ffffff";
@@ -148,20 +287,7 @@
     ctx.stroke();
   }
 
-  function speak(text) {
-    try {
-      if ("speechSynthesis" in window) {
-        var utter = new SpeechSynthesisUtterance(text);
-        utter.lang = "pt-BR";
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utter);
-      }
-    } catch (e) {
-      // fala não suportada neste ambiente, ignora
-    }
-  }
-
-  function render() {
+  function renderMoon() {
     var now = new Date();
     var age = getMoonAge(now);
     var info = getPhaseInfo(age);
@@ -169,24 +295,19 @@
     var canvas = document.getElementById("moonCanvas");
     drawMoon(canvas, info.illumination, info.waxing);
 
+    var dd = pad(now.getDate());
+    var mesNome = meses[now.getMonth()];
+    var yyyy = now.getFullYear();
+    document.getElementById("moonDate").textContent = dd + " de " + mesNome + " de " + yyyy;
+
     document.getElementById("phaseName").textContent = info.name;
     document.getElementById("phaseSub").textContent =
-      Math.round(info.illumination * 100) + "% iluminada · dia " + Math.floor(age) + " do ciclo";
-
-    return info.name;
+      Math.round(info.illumination * 100) + "% iluminada";
   }
 
-  var currentName = render();
+  renderMoon();
+  setInterval(renderMoon, 60 * 60 * 1000);
 
-  // Fala o nome da fase ao clicar no widget
-  document.querySelector(".moon-widget").addEventListener("click", function () {
-    speak("A fase atual da lua é " + currentName);
-  });
-
-  // Atualiza uma vez por hora, caso o widget fique aberto
-  setInterval(function () {
-    currentName = render();
-  }, 60 * 60 * 1000);
 })();
 </script>
 
