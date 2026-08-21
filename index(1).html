@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Fase da Lua</title>
+<style>
+  :root{
+    --line:#ffffff;
+    --text:#ffffff;
+    --muted:rgba(255,255,255,0.6);
+  }
+  html,body{
+    margin:0;
+    padding:0;
+    background:#191919;
+    height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .moon-widget{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding:16px;
+    min-height:100%;
+    background:#191919;
+    color:var(--text);
+    text-align:center;
+    box-sizing:border-box;
+  }
+  canvas{
+    display:block;
+  }
+  .phase-name{
+    font-size:16px;
+    font-weight:500;
+    letter-spacing:0.2px;
+  }
+  .phase-sub{
+    font-size:12px;
+    color:var(--muted);
+  }
+</style>
+</head>
+<body>
+
+<div class="moon-widget">
+  <canvas id="moonCanvas" width="160" height="160"></canvas>
+  <div class="phase-name" id="phaseName">Carregando...</div>
+  <div class="phase-sub" id="phaseSub"></div>
+</div>
+
+<script>
+(function(){
+  // ---- Cálculo da fase lunar (sem dependências externas) ----
+  // Referência: Lua Nova conhecida em 6 de Janeiro de 2000, 18:14 UTC
+  var LUNAR_CYCLE = 29.530588853; // dias, mês sinódico médio
+  var KNOWN_NEW_MOON = Date.UTC(2000, 0, 6, 18, 14, 0); // ms UTC
+
+  function getMoonAge(date) {
+    var diffMs = date.getTime() - KNOWN_NEW_MOON;
+    var diffDays = diffMs / (1000 * 60 * 60 * 24);
+    var age = diffDays % LUNAR_CYCLE;
+    if (age < 0) age += LUNAR_CYCLE;
+    return age; // 0 a ~29.53
+  }
+
+  // Retorna { name, illumination(0-1), wax:boolean }
+  function getPhaseInfo(age) {
+    var cycle = LUNAR_CYCLE;
+    var t = age / cycle; // 0 a 1
+    var illumination = (1 - Math.cos(2 * Math.PI * t)) / 2; // 0 a 1
+    var waxing = t < 0.5;
+
+    var name;
+    if (t < 0.02 || t > 0.98) name = "Lua Nova";
+    else if (t < 0.24) name = "Crescente Côncava";
+    else if (t < 0.26) name = "Quarto Crescente";
+    else if (t < 0.49) name = "Crescente Gibosa";
+    else if (t < 0.51) name = "Lua Cheia";
+    else if (t < 0.74) name = "Minguante Gibosa";
+    else if (t < 0.76) name = "Quarto Minguante";
+    else name = "Minguante Côncava";
+
+    return { name: name, illumination: illumination, waxing: waxing };
+  }
+
+  function drawMoon(canvas, illumination, waxing) {
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width, h = canvas.height;
+    var r = Math.min(w, h) / 2 - 6;
+    var cx = w / 2, cy = h / 2;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Parte iluminada, desenhada via clipping + elipse terminadora (só preenchimento branco, sem disco escuro)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+
+    var k = 1 - 2 * illumination; // -1 (cheia) a 1 (nova), controla largura da elipse do terminador
+    var halfW = Math.abs(k) * r;
+
+    ctx.fillStyle = "#ffffff";
+
+    // Metade sempre iluminada (direita se crescente, esquerda se minguante)
+    ctx.beginPath();
+    if (waxing) {
+      ctx.arc(cx, cy, r, -Math.PI / 2, Math.PI / 2, false);
+    } else {
+      ctx.arc(cx, cy, r, Math.PI / 2, -Math.PI / 2, false);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Elipse do terminador: em fase minguante/crescente, recorta ou soma luz
+    // Usa "destination-out" para apagar (deixar transparente) quando precisa remover luz,
+    // e desenha em branco quando precisa completar o disco perto da lua cheia.
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, halfW, r, 0, 0, Math.PI * 2);
+    if (illumination < 0.5) {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = "rgba(0,0,0,1)";
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = "#ffffff";
+    }
+    ctx.fill();
+    ctx.globalCompositeOperation = "source-over";
+
+    ctx.restore();
+
+    // Contorno do disco inteiro, sempre visível (outline)
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  function speak(text) {
+    try {
+      if ("speechSynthesis" in window) {
+        var utter = new SpeechSynthesisUtterance(text);
+        utter.lang = "pt-BR";
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(utter);
+      }
+    } catch (e) {
+      // fala não suportada neste ambiente, ignora
+    }
+  }
+
+  function render() {
+    var now = new Date();
+    var age = getMoonAge(now);
+    var info = getPhaseInfo(age);
+
+    var canvas = document.getElementById("moonCanvas");
+    drawMoon(canvas, info.illumination, info.waxing);
+
+    document.getElementById("phaseName").textContent = info.name;
+    document.getElementById("phaseSub").textContent =
+      Math.round(info.illumination * 100) + "% iluminada · dia " + Math.floor(age) + " do ciclo";
+
+    return info.name;
+  }
+
+  var currentName = render();
+
+  // Fala o nome da fase ao clicar no widget
+  document.querySelector(".moon-widget").addEventListener("click", function () {
+    speak("A fase atual da lua é " + currentName);
+  });
+
+  // Atualiza uma vez por hora, caso o widget fique aberto
+  setInterval(function () {
+    currentName = render();
+  }, 60 * 60 * 1000);
+})();
+</script>
+
+</body>
+</html>
